@@ -16,6 +16,8 @@ import json
 import datetime
 import os
 import requests
+import sqlite3
+
 # ============================================================
 # 第 1 步：配置。你用哪家就留哪家，把另一家整段注释掉。
 # ============================================================
@@ -60,17 +62,45 @@ def get_weather(city:str)->str:
          return f"{city}的天气是{desc}，温度是{temp}°C。"
     except Exception as e:
         return f"查询天气出错:{e}"
-
+def get_forecast(city:str, days:int = 3)->str:
+    try:
+        url = f"https://wttr.in/{city}?format=j1"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        result = f"{city}未来{days}天预报:\n"
+        for day in data["weather"][:days]:
+            date = day["date"]
+            max_t = day["maxtempC"]
+            min_t = day["mintempC"]
+            result += f"{date}:最高{max_t}°C，最低{min_t}°C\n"
+        return result
+    except Exception as e:
+        return f"查询天气预报出错:{e}"
 def get_current_time(_: str = "") -> str:
     """返回当前的日期和时间。"""
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+def query_database(sql: str) -> str:
+    """执行一句 SQL 查询（只允许 SELECT 查询）。"""
+    # 安全护栏：只允许查询，禁止任何修改/删除操作
+    if not sql.strip().upper().startswith("SELECT"):
+        return "拒绝执行：出于安全考虑，只允许 SELECT 查询。"
+    try:
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+        conn.close()
+        return str(rows)
+    except Exception as e:
+        return f"查询出错:{e}"
 
 # 把函数名映射到函数本身，方便循环里按名字调用
 AVAILABLE_TOOLS = {
     "calculator": calculator,
     "get_current_time": get_current_time,
     "get_weather":get_weather,
+    "query_database":query_database,
+    "get_forecast":get_forecast
 }
 
 # 告诉模型有哪些工具可用（这段描述是模型"看得到"的说明书）
@@ -104,7 +134,7 @@ TOOLS_SCHEMA = [
         "type":"function",
         "function":{
             "name":"get_weather",
-            "description":"获取指定的天气信息，当被问到天气时使用。因为没法联网，所以返回的是模拟数据。",
+            "description":"获取指定的天气信息，当被问到天气时使用。请使用工具获取天气信息，而不是直接回答。",
             "parameters":{
                 "type":"object",
                 "properties":{
@@ -114,6 +144,43 @@ TOOLS_SCHEMA = [
                     }
                 }
             }
+        }
+    },
+    {
+        "type":"function",
+        "function":{
+            "name":"query_database",
+            "description":"这是一个查询用户SQL数据库的工具,表名是users，字段里有id, name, city, age, 当被问到数据库相关问题时使用。请使用工具查询数据库，而不是直接回答。",
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "sql":{
+                        "type":"string",
+                        "description":"要执行的SQL查询语句，例如 'SELECT * FROM users WHERE age > 30;'"
+                    }
+                },
+                "required":["sql"]
+            }
+        }
+    },
+    {
+        "type":"function",
+        "function":{
+            "name":"get_forecast",
+            "description":"获取指定城市的天气预报，当被问到未来几天的天气时使用。请使用工具获取天气预报，而不是直接回答。",
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "city":{
+                        "type":"string",
+                        "description":"被查询天气预报的城市名称，例如 '北京'、'上海'、'广州' 等。"
+                    },
+                    "days":{
+                        "type":"integer",
+                        "description":"要查询的未来几天的天气预报，默认为3天。"
+                    }
+                }
+        }
         }
     }
 ]
@@ -130,7 +197,7 @@ def run_agent(user_question: str, max_steps: int = 5):
     messages = [
         {
             "role": "system",
-            "content": "你是一个乐于助人的助手。只有当问题真正涉及算数或时间时才调用工具；如果是普通聊天或自我介绍，直接回答，不要调用任何工具。",
+            "content": ""你是一个乐于助人的助手。调用工具拿到结果后，如果信息已经足够回答用户，就直接回答，不要重复调用同一个工具。"",
         },
         {"role": "user", "content": user_question},
     ]
@@ -210,7 +277,10 @@ def run_agent(user_question: str, max_steps: int = 5):
 # ============================================================
 
 if __name__ == "__main__":
-    run_agent("现在几点了？")
-    run_agent("如果一件商品原价 240 元，打七五折，再减 30 元，最后多少钱？")
-    run_agent("你好，你是谁？")  # 这个不需要工具，模型会直接回答
-    run_agent("北京今天天气怎么样？")
+    print("你好！我是你的助手，可以查天气、算数、查用户数据库。输入 quit 退出。")
+    while True:
+        question = input("\n请输入你的问题:")
+        if question.strip().lower() in ("quit", "exit", "退出"):
+            print("再见!")
+            break
+        run_agent(question)
