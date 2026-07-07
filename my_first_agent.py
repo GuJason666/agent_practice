@@ -15,6 +15,7 @@ from openai import OpenAI
 import json
 import datetime
 import os
+import requests
 # ============================================================
 # 第 1 步：配置。你用哪家就留哪家，把另一家整段注释掉。
 # ============================================================
@@ -48,7 +49,17 @@ def calculator(expression: str) -> str:
     except Exception as e:
         return f"计算出错：{e}"
 def get_weather(city:str)->str:
-    return f"{city}今天:晴，气温25度，风力3级。"
+    try:
+        # 1. 发请求（format=j1 表示要 JSON）
+         url = f"https://wttr.in/{city}?format=j1"
+         response = requests.get(url, timeout=10)
+         data = response.json()
+        # 2. 从返回数据里取出温度和天气描述
+         temp = data["current_condition"][0]["temp_C"]
+         desc = data["current_condition"][0]["weatherDesc"][0]["value"]
+         return f"{city}的天气是{desc}，温度是{temp}°C。"
+    except Exception as e:
+        return f"查询天气出错:{e}"
 
 def get_current_time(_: str = "") -> str:
     """返回当前的日期和时间。"""
